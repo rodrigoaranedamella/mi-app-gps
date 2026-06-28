@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
 
 // Tus credenciales reales ya configuradas de forma segura
 const SUPABASE_URL = "https://jgddfaasvthwhzpujwlo.supabase.co";
