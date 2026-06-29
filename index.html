@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoreo GPS - Teltonika</title>
+    <title>Monitoreo GPS en Tiempo Real - Teltonika</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 
@@ -28,38 +28,9 @@
             font-size: 1.2rem;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        #control-panel {
-            background-color: white;
-            padding: 15px;
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            align-items: center;
-            border-bottom: 1px solid #e2e8f0;
             z-index: 1000;
         }
-        input, button {
-            padding: 10px 15px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            font-size: 1rem;
-        }
-        input {
-            width: 250px;
-        }
-        button {
-            background-color: #2563eb;
-            color: white;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            transition: background-color 0.2s;
-        }
-        button:hover {
-            background-color: #1d4ed8;
-        }
-        /* Contenedor del mapa: Asegura que use todo el espacio restante de la pantalla */
+        /* El mapa toma toda la pantalla automáticamente */
         #map {
             flex: 1;
             width: 100%;
@@ -69,17 +40,11 @@
 </head>
 <body>
 
-    <header>Sistema de Localización GPS Teltonika</header>
-
-    <div id="control-panel">
-        <input type="text" id="imei-input" placeholder="Ingrese el IMEI del vehículo..." />
-        <button id="buscar-btn">Buscar Historial</button>
-    </div>
+    <header>Localización GPS Vehículo - En Vivo</header>
 
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script>
@@ -89,121 +54,79 @@
         const SUPABASE_URL = 'https://jgddfaasvthwhzpujwlo.supabase.co'; 
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnZGRmYWFzdnRod2h6cHVqd2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1OTY5MzEsImV4cCI6MjA5ODE3MjkzMX0.sTHjDi1q6flUeSOW6FwK3SN2Uje-tVsnIqHt_Be-ruk'; 
 
-        // Inicializar el cliente de conexión a la base de datos
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // ==========================================
         // INICIALIZACIÓN DEL MAPA
         // ==========================================
-        // Comienza centrado de forma genérica. El zoom cambiará automáticamente al buscar el IMEI.
+        // Inicia centrado de forma neutra; se moverá al punto exacto del GPS apenas carguen los datos.
         const map = L.map('map').setView([-33.4489, -70.6693], 13); 
 
-        // Cargar las imágenes del mapa (OpenStreetMap)
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        // Variables globales para limpiar el mapa en cada nueva consulta
-        let marcadoresActuales = [];
-        let lineaRuta = null;
+        let marcadorVehiculo = null;
 
         // ==========================================
-        // FUNCIÓN: CONSULTAR SUPABASE Y DIBUJAR RUTA
+        // FUNCIÓN AUTOMÁTICA: CARGAR ÚLTIMO PUNTO
         // ==========================================
-        async function obtenerHistorialGps(imeiSeleccionado) {
-            // Limpiar marcadores y líneas de búsquedas anteriores
-            marcadoresActuales.forEach(marker => map.removeLayer(marker));
-            marcadoresActuales = [];
-            if (lineaRuta) {
-                map.removeLayer(lineaRuta);
-                lineaRuta = null;
-            }
+        async function cargarUltimaUbicacion() {
+            console.log("Cargando localización actual desde Supabase...");
 
-            console.log(`Buscando registros en Supabase para el IMEI: ${imeiSeleccionado}...`);
-
-            // Consulta a la tabla 'historial_gps' usando los nombres de columna correctos
+            // Trae directamente el último registro guardado en tu tabla
             const { data, error } = await supabase
                 .from('historial_gps')
                 .select('imei, latitud, longitud, velocidad, fecha_gps')
-                .eq('imei', imeiSeleccionado)
-                .order('fecha_gps', { ascending: true }); // Ordenados cronológicamente para trazar la línea bien
+                .order('fecha_gps', { ascending: false })
+                .limit(1); // Solo nos interesa la posición más reciente
 
             if (error) {
-                console.error("Error al consultar Supabase:", error);
-                alert("Hubo un error al consultar los datos. Revisa la consola del navegador.");
+                console.error("Error conectando a Supabase:", error);
                 return;
             }
 
             if (!data || data.length === 0) {
-                alert("No se encontraron registros de ubicación para este IMEI. Asegúrate de haberlo escrito bien.");
+                console.log("Aún no existen registros en la base de datos.");
                 return;
             }
 
-            const coordenadasRuta = [];
+            const registro = data[0];
+            const lat = parseFloat(registro.latitud);
+            const lng = parseFloat(registro.longitud);
 
-            // Recorrer los registros encontrados y ponerlos en el mapa
-            data.forEach((pos, index) => {
-                const lat = parseFloat(pos.latitud);
-                const lng = parseFloat(pos.longitud);
-                
-                if (!isNaN(lat) && !isNaN(lng)) {
-                    const punto = [lat, lng];
-                    coordenadasRuta.push(punto);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                const posicion = [lat, lng];
+                const fechaLegible = new Date(registro.fecha_gps).toLocaleString();
 
-                    // Formatear la fecha para que se entienda fácil
-                    const fechaLegible = new Date(pos.fecha_gps).toLocaleString();
-
-                    let textoPopup = `
-                        <strong>Punto ${index + 1}</strong><br>
-                        <b>Fecha:</b> ${fechaLegible}<br>
-                        <b>Velocidad:</b> ${pos.velocidad} km/h
-                    `;
-
-                    // Crear marcador individual con su globo de información
-                    const marcador = L.marker(punto).addTo(map).bindPopup(textoPopup);
-                    marcadoresActuales.push(marcador);
+                // Si ya existe un marcador en el mapa, lo mueve. Si no, lo crea.
+                if (marcadorVehiculo) {
+                    marcadorVehiculo.setLatLng(posicion);
+                } else {
+                    marcadorVehiculo = L.marker(posicion).addTo(map);
                 }
-            });
 
-            // Dibujar la línea azul que une todos los puntos del recorrido
-            if (coordenadasRuta.length > 1) {
-                lineaRuta = L.polyline(coordenadasRuta, {
-                    color: '#2563eb',
-                    weight: 4,
-                    opacity: 0.8
-                }).addTo(map);
+                // Añadir el cuadro de datos al hacer clic en el marcador
+                marcadorVehiculo.bindPopup(`
+                    <strong>Vehículo Monitoreado</strong><br>
+                    <b>IMEI:</b> ${registro.imei}<br>
+                    <b>Velocidad:</b> ${registro.velocidad} km/h<br>
+                    <b>Último reporte:</b> ${fechaLegible}
+                `).openPopup();
 
-                // Auto-ajustar la cámara del mapa para encuadrar perfectamente toda la ruta
-                map.fitBounds(lineaRuta.getBounds());
-            } else if (coordenadasRuta.length === 1) {
-                // Si solo hay un punto de localización registrado
-                map.setView(coordenadasRuta[0], 16);
+                // Enfocar la cámara directo en la ubicación real del auto
+                map.setView(posicion, 16);
             }
         }
 
-        // ==========================================
-        // DETECCIÓN DE CLICK Y TECLA ENTER
-        // ==========================================
-        document.getElementById('buscar-btn').addEventListener('click', () => {
-            const imei = document.getElementById('imei-input').value.trim();
-            if (imei === "") {
-                alert("Por favor, ingrese un número de IMEI.");
-                return;
-            }
-            obtenerHistorialGps(imei);
-        });
-
-        document.getElementById('imei-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                const imei = document.getElementById('imei-input').value.trim();
-                if (imei === "") {
-                    alert("Por favor, ingrese un número de IMEI.");
-                    return;
-                }
-                obtenerHistorialGps(imei);
-            }
-        });
+        // Ejecutar de forma automática en cuanto la página web termine de abrir
+        window.onload = () => {
+            cargarUltimaUbicacion();
+            
+            // Opcional: Revisa la base de datos cada 30 segundos automáticamente por si el auto se mueve
+            setInterval(cargarUltimaUbicacion, 30000);
+        };
     </script>
 </body>
 </html>
