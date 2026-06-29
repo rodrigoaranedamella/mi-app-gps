@@ -59,7 +59,7 @@
         button:hover {
             background-color: #1d4ed8;
         }
-        /* Contenedor principal del mapa */
+        /* Contenedor del mapa: Asegura que use todo el espacio restante de la pantalla */
         #map {
             flex: 1;
             width: 100%;
@@ -82,6 +82,128 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <script src="app.js"></script>
+    <script>
+        // ==========================================
+        // CONFIGURACIÓN DE CREDENCIALES DE SUPABASE
+        // ==========================================
+        const SUPABASE_URL = 'https://jgddfaasvthwhzpujwlo.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnZGRmYWFzdnRod2h6cHVqd2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1OTY5MzEsImV4cCI6MjA5ODE3MjkzMX0.sTHjDi1q6flUeSOW6FwK3SN2Uje-tVsnIqHt_Be-ruk'; 
+
+        // Inicializar el cliente de conexión a la base de datos
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // ==========================================
+        // INICIALIZACIÓN DEL MAPA
+        // ==========================================
+        // Comienza centrado de forma genérica. El zoom cambiará automáticamente al buscar el IMEI.
+        const map = L.map('map').setView([-33.4489, -70.6693], 13); 
+
+        // Cargar las imágenes del mapa (OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // Variables globales para limpiar el mapa en cada nueva consulta
+        let marcadoresActuales = [];
+        let lineaRuta = null;
+
+        // ==========================================
+        // FUNCIÓN: CONSULTAR SUPABASE Y DIBUJAR RUTA
+        // ==========================================
+        async function obtenerHistorialGps(imeiSeleccionado) {
+            // Limpiar marcadores y líneas de búsquedas anteriores
+            marcadoresActuales.forEach(marker => map.removeLayer(marker));
+            marcadoresActuales = [];
+            if (lineaRuta) {
+                map.removeLayer(lineaRuta);
+                lineaRuta = null;
+            }
+
+            console.log(`Buscando registros en Supabase para el IMEI: ${imeiSeleccionado}...`);
+
+            // Consulta a la tabla 'historial_gps' usando los nombres de columna correctos
+            const { data, error } = await supabase
+                .from('historial_gps')
+                .select('imei, latitud, longitud, velocidad, fecha_gps')
+                .eq('imei', imeiSeleccionado)
+                .order('fecha_gps', { ascending: true }); // Ordenados cronológicamente para trazar la línea bien
+
+            if (error) {
+                console.error("Error al consultar Supabase:", error);
+                alert("Hubo un error al consultar los datos. Revisa la consola del navegador.");
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                alert("No se encontraron registros de ubicación para este IMEI. Asegúrate de haberlo escrito bien.");
+                return;
+            }
+
+            const coordenadasRuta = [];
+
+            // Recorrer los registros encontrados y ponerlos en el mapa
+            data.forEach((pos, index) => {
+                const lat = parseFloat(pos.latitud);
+                const lng = parseFloat(pos.longitud);
+                
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const punto = [lat, lng];
+                    coordenadasRuta.push(punto);
+
+                    // Formatear la fecha para que se entienda fácil
+                    const fechaLegible = new Date(pos.fecha_gps).toLocaleString();
+
+                    let textoPopup = `
+                        <strong>Punto ${index + 1}</strong><br>
+                        <b>Fecha:</b> ${fechaLegible}<br>
+                        <b>Velocidad:</b> ${pos.velocidad} km/h
+                    `;
+
+                    // Crear marcador individual con su globo de información
+                    const marcador = L.marker(punto).addTo(map).bindPopup(textoPopup);
+                    marcadoresActuales.push(marcador);
+                }
+            });
+
+            // Dibujar la línea azul que une todos los puntos del recorrido
+            if (coordenadasRuta.length > 1) {
+                lineaRuta = L.polyline(coordenadasRuta, {
+                    color: '#2563eb',
+                    weight: 4,
+                    opacity: 0.8
+                }).addTo(map);
+
+                // Auto-ajustar la cámara del mapa para encuadrar perfectamente toda la ruta
+                map.fitBounds(lineaRuta.getBounds());
+            } else if (coordenadasRuta.length === 1) {
+                // Si solo hay un punto de localización registrado
+                map.setView(coordenadasRuta[0], 16);
+            }
+        }
+
+        // ==========================================
+        // DETECCIÓN DE CLICK Y TECLA ENTER
+        // ==========================================
+        document.getElementById('buscar-btn').addEventListener('click', () => {
+            const imei = document.getElementById('imei-input').value.trim();
+            if (imei === "") {
+                alert("Por favor, ingrese un número de IMEI.");
+                return;
+            }
+            obtenerHistorialGps(imei);
+        });
+
+        document.getElementById('imei-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const imei = document.getElementById('imei-input').value.trim();
+                if (imei === "") {
+                    alert("Por favor, ingrese un número de IMEI.");
+                    return;
+                }
+                obtenerHistorialGps(imei);
+            }
+        });
+    </script>
 </body>
 </html>
