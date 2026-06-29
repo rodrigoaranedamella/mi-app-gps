@@ -34,8 +34,11 @@ export default function App() {
       .from('historial_gps')
       .select('*')
       .eq('imei', VEHICULO_IMEI)
-      .order('fecha_gps', { ascending: true });
-    if (!error && data) setPosiciones(data);
+      .order('fecha_gps', { ascending: false }); // <-- MEJORA: Trae primero el dato más nuevo
+    
+    if (!error && data) {
+      setPosiciones(data);
+    }
   };
 
   const iniciarSesion = async (e) => {
@@ -61,15 +64,18 @@ export default function App() {
     );
   }
 
-  const ultimaPos = posiciones[posiciones.length - 1];
+  // AL usar ascending: false, el elemento [0] es la última ubicación exacta conocida
+  const ultimaPos = posiciones[0];
   const centroMapa = ultimaPos ? [ultimaPos.latitud, ultimaPos.longitud] : [-33.456, -70.648]; 
-  const lineaRuta = posiciones.map(p => [p.latitud, p.longitud]);
+  
+  // Invertimos temporalmente el arreglo sólo para dibujar la línea cronológica en el mapa de pasado a presente
+  const lineaRuta = [...posiciones].reverse().map(p => [p.latitud, p.longitud]);
 
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif' }}>
       <header style={{ background: '#1f2937', color: 'white', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
         <h1 style={{ margin: 0, fontSize: '18px' }}>📍 Vehículo IMEI: {VEHICULO_IMEI}</h1>
-        <button onClick={() => supabase.auth.signOut()} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Salir</button>
+        <button onClick={() => supabase.signOut()} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Salir</button>
       </header>
       
       {posiciones.length > 0 ? (
